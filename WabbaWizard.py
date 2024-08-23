@@ -1,5 +1,6 @@
 import tkinter as tk
 from tkinter import scrolledtext
+from tkinter import ttk
 import threading
 import pyautogui
 import cv2
@@ -21,19 +22,34 @@ class ButtonFinderApp:
         self.running = False
         self.keybind_start = 'space'
         self.keybind_stop = 'esc'
+        self.fail_count = 0
+
+        # Set a high-contrast theme
+        self.style = ttk.Style()
+        self.style.theme_use('clam')
+
+        self.style.configure('TButton', font=('Helvetica', 12), foreground='white', background='#333333')
+        self.style.configure('TLabel', font=('Helvetica', 12), foreground='white', background='#333333')
+        self.style.configure('TFrame', background='#333333')
+        self.style.configure('TScrolledText', font=('Helvetica', 10), foreground='white', background='#222222')
+        
+        self.root.configure(background='#333333')
 
         # GUI Elements
-        self.log = scrolledtext.ScrolledText(root, height=20, width=50)
-        self.log.pack(pady=10)
+        main_frame = ttk.Frame(root, padding="10 10 10 10")
+        main_frame.pack(fill='both', expand=True)
 
-        self.start_button = tk.Button(root, text="Start", command=self.start_script)
-        self.start_button.pack(pady=5)
+        self.log = scrolledtext.ScrolledText(main_frame, height=20, width=50, wrap=tk.WORD, font=('Helvetica', 10), bg='#222222', fg='white', insertbackground='white')
+        self.log.grid(row=0, column=0, columnspan=2, pady=10)
 
-        self.stop_button = tk.Button(root, text="Stop", command=self.stop_script, state=tk.DISABLED)
-        self.stop_button.pack(pady=5)
+        self.start_button = ttk.Button(main_frame, text="Start", command=self.start_script)
+        self.start_button.grid(row=1, column=0, pady=5, sticky='ew')
 
-        self.keybind_label = tk.Label(root, text=f"Start Keybind: {self.keybind_start}, Stop Keybind: {self.keybind_stop}")
-        self.keybind_label.pack(pady=5)
+        self.stop_button = ttk.Button(main_frame, text="Stop", command=self.stop_script, state=tk.DISABLED)
+        self.stop_button.grid(row=1, column=1, pady=5, sticky='ew')
+
+        self.keybind_label = ttk.Label(main_frame, text=f"Start Keybind: {self.keybind_start}, Stop Keybind: {self.keybind_stop}")
+        self.keybind_label.grid(row=2, column=0, columnspan=2, pady=5)
 
         # Register fixed keybindings
         self.register_keybindings()
@@ -45,8 +61,9 @@ class ButtonFinderApp:
     def start_script(self):
         if not self.running:
             self.running = True
-            self.start_button.config(state=tk.DISABLED)
-            self.stop_button.config(state=tk.NORMAL)
+            self.fail_count = 0
+            self.start_button.state(['disabled'])
+            self.stop_button.state(['!disabled'])
             self.log_message("Script started.")
             if not hasattr(self, 'script_thread') or not self.script_thread.is_alive():
                 self.script_thread = threading.Thread(target=self.run_script)
@@ -58,9 +75,9 @@ class ButtonFinderApp:
         if self.running:
             self.log_message("Stopping script...")
             self.running = False
-            self.start_button.config(state=tk.NORMAL)
-            self.stop_button.config(state=tk.DISABLED)
-            if hasattr(self, 'script_thread'):
+            self.start_button.state(['!disabled'])
+            self.stop_button.state(['disabled'])
+            if hasattr(self, 'script_thread') and self.script_thread.is_alive():
                 self.script_thread.join()
             self.log_message("Script stopped.")
         else:
@@ -100,15 +117,20 @@ class ButtonFinderApp:
             min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
 
             if max_val >= threshold:
+                self.fail_count = 0
                 button_x = max_loc[0] + reference_image.shape[1] // 2
                 button_y = max_loc[1] + reference_image.shape[0] // 2
                 self.log_message(f'Button found at: ({button_x}, {button_y}) with match confidence: {max_val}')
-                cv2.rectangle(screenshot, max_loc, (max_loc[0] + reference_image.shape[1], max_loc[1] + reference_image.shape[0]), (0, 255, 0), 2)
                 pyautogui.moveTo(button_x, button_y)
                 pyautogui.click()
                 time.sleep(1)  # Sleep to avoid too rapid clicks
             else:
-                self.log_message(f'Button not found. Max confidence: {max_val}')
+                self.fail_count += 1
+                self.log_message(f'Button not found. Max confidence: {max_val}. Fail count: {self.fail_count}')
+                if self.fail_count >= 5:
+                    pyautogui.moveRel(1, 1)  # Move the mouse slightly
+                    self.log_message('Mouse moved slightly to refresh pointer.')
+                    self.fail_count = 0
                 time.sleep(1)  # Sleep before retrying
 
         self.log_message("Script stopped.")
